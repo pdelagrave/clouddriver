@@ -18,57 +18,54 @@ package com.netflix.spinnaker.clouddriver.controllers
 
 import com.netflix.spinnaker.clouddriver.model.Instance
 import com.netflix.spinnaker.clouddriver.model.InstanceProvider
+import com.netflix.spinnaker.clouddriver.security.AccountCredentials
 import com.netflix.spinnaker.kork.web.exceptions.NotFoundException
-import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.MessageSource
 import org.springframework.security.access.prepost.PreAuthorize
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestMethod
-import org.springframework.web.bind.annotation.RequestParam
-import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/instances")
 class InstanceController {
+  private final Map<String, InstanceProvider> instanceProviderMap
+  private MessageSource messageSource
 
-  @Autowired
-  List<InstanceProvider> instanceProviders
+  InstanceController(List<InstanceProvider> instanceProviders, MessageSource messageSource) {
+    this.instanceProviderMap = instanceProviders.collectEntries { [it.cloudProvider, it] }
+    this.messageSource = messageSource
+  }
 
-  @Autowired
-  MessageSource messageSource
-
-  @PreAuthorize("hasPermission(#account, 'ACCOUNT', 'READ')")
-  @RequestMapping(value = "/{account}/{region}/{id:.+}", method = RequestMethod.GET)
-  Instance getInstance(@PathVariable String account,
+  @PreAuthorize("hasPermission(#accountId, 'ACCOUNT', 'READ')")
+  @RequestMapping(value = "/{accountId}/{region}/{id:.+}", method = RequestMethod.GET)
+  Instance getInstance(@AccountPathVariable AccountCredentials account,
                        @PathVariable String region,
                        @PathVariable String id) {
-    Collection<Instance> instanceMatches = instanceProviders.findResults {
-      it.getInstance(account, region, id)
-    }
-    if (!instanceMatches) {
+
+    def instanceProvider = instanceProvidersMap.get(account.getCloudProvider())
+    def instance = instanceProvider.getInstance(account.accountId, region, id)
+    if (instance == null) {
       throw new NotFoundException("Instance not found (id: ${id})")
     }
-    instanceMatches.first()
+    instance
   }
 
   @PreAuthorize("hasPermission(#account, 'ACCOUNT', 'READ')")
   @RequestMapping(value = "{account}/{region}/{id}/console", method = RequestMethod.GET)
   Map getConsoleOutput(@RequestParam(value = "provider", required = false) String provider, // deprecated
                        @RequestParam(value = "cloudProvider", required = false) String cloudProvider,
-                       @PathVariable String account,
+                       @AccountPathVariable AccountCredentials account,
                        @PathVariable String region,
                        @PathVariable String id) {
     String providerParam = cloudProvider ?: provider
     Collection outputs = instanceProviders.findResults {
       if (!providerParam || it.cloudProvider == providerParam) {
-        return it.getConsoleOutput(account, region, id)
+        return it.getConsoleOutput(account.getName(), region, id)
       }
       null
     }
     if (!outputs) {
       throw new NotFoundException("Instance not found (id: ${id})")
     }
-    [ output: outputs.first() ]
+    [output: outputs.first()]
   }
 }

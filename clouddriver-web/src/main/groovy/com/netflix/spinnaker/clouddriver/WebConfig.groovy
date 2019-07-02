@@ -18,9 +18,11 @@ package com.netflix.spinnaker.clouddriver
 
 import com.netflix.spectator.api.Registry
 import com.netflix.spinnaker.clouddriver.configuration.CredentialsConfiguration
-
+import com.netflix.spinnaker.clouddriver.controllers.AccountPathVariable
 import com.netflix.spinnaker.clouddriver.requestqueue.RequestQueue
 import com.netflix.spinnaker.clouddriver.requestqueue.RequestQueueConfiguration
+import com.netflix.spinnaker.clouddriver.security.AccountCredentials
+import com.netflix.spinnaker.clouddriver.security.AccountCredentialsProvider
 import com.netflix.spinnaker.filters.AuthenticatedRequestFilter
 import com.netflix.spinnaker.kork.dynamicconfig.DynamicConfigService
 import com.netflix.spinnaker.kork.web.interceptors.MetricsInterceptor
@@ -30,11 +32,19 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.ComponentScan
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.MethodParameter
 import org.springframework.core.Ordered
 import org.springframework.http.HttpStatus
+import org.springframework.lang.Nullable
 import org.springframework.web.bind.annotation.ControllerAdvice
 import org.springframework.web.bind.annotation.ExceptionHandler
+import org.springframework.web.bind.support.WebDataBinderFactory
+import org.springframework.web.context.request.NativeWebRequest
+import org.springframework.web.context.request.RequestAttributes
 import org.springframework.web.filter.ShallowEtagHeaderFilter
+import org.springframework.web.method.support.HandlerMethodArgumentResolver
+import org.springframework.web.method.support.ModelAndViewContainer
+import org.springframework.web.servlet.HandlerMapping
 import org.springframework.web.servlet.config.annotation.ContentNegotiationConfigurer
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurerAdapter
@@ -54,12 +64,44 @@ public class WebConfig extends WebMvcConfigurerAdapter {
   @Autowired
   Registry registry
 
+  @Autowired
+  AccountCredentialsProvider accountCredentialsProvider
+
   @Override
   public void addInterceptors(InterceptorRegistry registry) {
     registry.addInterceptor(
       new MetricsInterceptor(
         this.registry, "controller.invocations", ["account", "region"], ["BasicErrorController"]
       )
+    )
+  }
+
+  @Override
+  void addArgumentResolvers(List<HandlerMethodArgumentResolver> argumentResolvers) {
+    argumentResolvers.add(
+            new HandlerMethodArgumentResolver() {
+              @Override
+              boolean supportsParameter(MethodParameter parameter) {
+                return AccountCredentials == parameter.getParameterType() && parameter.getParameterAnnotation(AccountPathVariable) != null
+              }
+
+              @Override
+              Object resolveArgument(
+                      MethodParameter parameter,
+                      @Nullable ModelAndViewContainer mavContainer,
+                      NativeWebRequest webRequest,
+                      @Nullable WebDataBinderFactory binderFactory)
+                      throws Exception {
+
+                String urlParameterName = parameter.getParameterAnnotation(AccountPathVariable).value()
+
+                Map<String, String> uriTemplateVars =
+                        (Map<String, String>) webRequest.getAttribute(
+                                HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, RequestAttributes.SCOPE_REQUEST)
+
+                return accountCredentialsProvider.getCredentials(uriTemplateVars.get(urlParameterName))
+              }
+            }
     )
   }
 
