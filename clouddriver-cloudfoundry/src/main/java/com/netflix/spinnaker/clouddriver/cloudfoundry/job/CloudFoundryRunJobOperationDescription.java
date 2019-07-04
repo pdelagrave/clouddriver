@@ -26,6 +26,5 @@ import lombok.EqualsAndHashCode;
 public class CloudFoundryRunJobOperationDescription extends AbstractCloudFoundryDescription {
 
   private CloudFoundryServerGroup serverGroup;
-  private String jobName;
   private String command;
 }

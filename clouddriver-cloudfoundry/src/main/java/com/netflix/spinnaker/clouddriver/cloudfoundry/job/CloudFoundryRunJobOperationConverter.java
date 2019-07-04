@@ -44,7 +44,6 @@ public class CloudFoundryRunJobOperationConverter
 
     CloudFoundryClient client = getClient(input);
     converted.setClient(client);
-    String jobName = (String) input.get("jobName");
     String region = (String) input.get("region");
     String serverGroupName = (String) input.get("serverGroupName");
 
@@ -61,8 +60,8 @@ public class CloudFoundryRunJobOperationConverter
     if (serverGroup == null) {
       throw new IllegalStateException(
           String.format(
-              "Can't run job '%s': CloudFoundry application '%s' not found in org/space '%s'",
-              jobName, serverGroupName, region));
+              "Can't run job: CloudFoundry application '%s' not found in org/space '%s'",
+              serverGroupName, region));
     }
 
     converted.setServerGroup(serverGroup);

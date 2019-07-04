@@ -34,7 +34,6 @@ public class CloudFoundryRunJobOperation implements AtomicOperation<DeploymentRe
   @Override
   public DeploymentResult operate(List priorOutputs) {
     CloudFoundryClient client = description.getClient();
-    String jobName = description.getJobName();
     CloudFoundryServerGroup serverGroup = description.getServerGroup();
     String applicationGuid = serverGroup.getId();
     String applicationName = serverGroup.getName();
@@ -44,10 +43,10 @@ public class CloudFoundryRunJobOperation implements AtomicOperation<DeploymentRe
         .updateStatus(
             PHASE,
             String.format(
-                "Running job '%1$s' as a CloudFoundry task '%1$s' on org/space '%2$s' with application '%3$s'",
-                jobName, description.getRegion(), applicationName));
+                "Running job as a CloudFoundry task on org/space '%s' with application '%s'",
+                description.getRegion(), applicationName));
 
-    Task cfTask = client.getTasks().createTask(applicationGuid, description.getCommand(), jobName);
+    Task cfTask = client.getTasks().createTask(applicationGuid, description.getCommand());
 
     DeploymentResult deploymentResult = new DeploymentResult();
     deploymentResult

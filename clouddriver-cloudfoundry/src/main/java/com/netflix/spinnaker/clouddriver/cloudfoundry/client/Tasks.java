@@ -27,8 +27,8 @@ import lombok.RequiredArgsConstructor;
 public class Tasks {
   private final TaskService api;
 
-  public Task createTask(String applicationGuid, String command, String name) {
-    CreateTask createTask = CreateTask.builder().command(command).name(name).build();
+  public Task createTask(String applicationGuid, String command) {
+    CreateTask createTask = CreateTask.builder().command(command).build();
 
     return safelyCall(() -> api.createTask(applicationGuid, createTask))
         .orElseThrow(ResourceNotFoundException::new);

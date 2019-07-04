@@ -18,7 +18,6 @@ package com.netflix.spinnaker.clouddriver.cloudfoundry.client.model.v3;
 
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-import javax.annotation.Nullable;
 import lombok.Builder;
 import lombok.Value;
 
@@ -26,7 +25,6 @@ import lombok.Value;
 @JsonDeserialize(builder = CreateTask.CreateTaskBuilder.class)
 @Builder
 public class CreateTask {
-  @Nullable private String name;
   private String command;
 
   @JsonPOJOBuilder(withPrefix = "")
