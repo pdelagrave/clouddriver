@@ -16,15 +16,29 @@
 
 package com.netflix.spinnaker.clouddriver.cloudfoundry.job;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.io.BaseEncoding;
+import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.util.JsonFormat;
+import com.google.protobuf.util.JsonFormat.Printer;
 import com.netflix.spinnaker.clouddriver.cloudfoundry.CloudFoundryCloudProvider;
+import com.netflix.spinnaker.clouddriver.cloudfoundry.client.CloudFoundryClient;
 import com.netflix.spinnaker.clouddriver.cloudfoundry.client.model.v3.Task;
 import com.netflix.spinnaker.clouddriver.cloudfoundry.security.CloudFoundryCredentials;
 import com.netflix.spinnaker.clouddriver.model.JobProvider;
 import com.netflix.spinnaker.clouddriver.security.AccountCredentials;
 import com.netflix.spinnaker.clouddriver.security.AccountCredentialsProvider;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.Getter;
-import org.apache.commons.lang3.NotImplementedException;
+import org.cloudfoundry.dropsonde.events.EventFactory.Envelope;
+import org.cloudfoundry.dropsonde.events.EventFactory.Envelope.EventType;
+import org.cloudfoundry.dropsonde.events.LogFactory.LogMessage;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -39,28 +53,84 @@ public class CloudFoundryJobProvider implements JobProvider<CloudFoundryJobStatu
 
   @Override
   public CloudFoundryJobStatus collectJob(String account, String location, String id) {
-    AccountCredentials credentials = accountCredentialsProvider.getCredentials(account);
-    if (!(credentials instanceof CloudFoundryCredentials)) {
+    CloudFoundryClient client = getClient(account);
+    if (client == null) {
       return null;
     }
 
-    Task task = ((CloudFoundryCredentials) credentials).getClient().getTasks().getTask(id);
+    Task task = client.getTasks().getTask(id);
     return CloudFoundryJobStatus.fromTask(task, account, location);
   }
 
   @Override
   public Map<String, Object> getFileContents(
       String account, String location, String id, String fileName) {
-    throw new NotImplementedException("");
+    CloudFoundryClient client = getClient(account);
+    if (client == null) {
+      return null;
+    }
+
+    Task task = client.getTasks().getTask(id);
+    String appGuid = task.getLinks().get("app").getGuid();
+    String taskLogSourceTypeFilter = String.format("APP/TASK/%s", task.getName());
+
+    Printer printer = JsonFormat.printer();
+    ObjectMapper objectMapper = new ObjectMapper();
+
+    List<Map<String, Object>> logsMessages =
+        client.getLogs().recentLogs(appGuid).stream()
+            .filter(e -> e.getEventType().equals(EventType.LogMessage))
+            .map(Envelope::getLogMessage)
+            .filter(logMessage -> taskLogSourceTypeFilter.equals(logMessage.getSourceType()))
+            .sorted(Comparator.comparingLong(LogMessage::getTimestamp))
+            // Converting to JSON first using protobuf's own JsonFormat library as it's otherwise
+            // pretty tricky to convert straight com.google.protobuf.MessageOrBuilder to
+            // java.util.Map using Jackson's ObjectMapper.convertValue()
+            .map(
+                logMessage -> {
+                  try {
+                    return printer.print(logMessage);
+                  } catch (InvalidProtocolBufferException e) {
+                    throw new RuntimeException(e);
+                  }
+                })
+            .map(
+                jsonLogMessage -> {
+                  try {
+                    return (Map<String, Object>) objectMapper.readValue(jsonLogMessage, Map.class);
+                  } catch (IOException e) {
+                    throw new RuntimeException(e);
+                  }
+                })
+            .peek(
+                logMessage -> {
+                  String decodedMessage =
+                      new String(
+                          BaseEncoding.base64().decode((String) logMessage.get("message")),
+                          StandardCharsets.UTF_8);
+
+                  logMessage.put("message", decodedMessage);
+                })
+            .collect(Collectors.toList());
+
+    return Collections.singletonMap("logs", logsMessages);
   }
 
   @Override
   public void cancelJob(String account, String location, String taskGuid) {
-    AccountCredentials credentials = accountCredentialsProvider.getCredentials(account);
-    if (!(credentials instanceof CloudFoundryCredentials)) {
+    CloudFoundryClient client = getClient(account);
+    if (client == null) {
       return;
     }
 
-    ((CloudFoundryCredentials) credentials).getClient().getTasks().cancelTask(taskGuid);
+    client.getTasks().cancelTask(taskGuid);
+  }
+
+  private CloudFoundryClient getClient(String accountName) {
+    AccountCredentials credentials = accountCredentialsProvider.getCredentials(accountName);
+    if (!(credentials instanceof CloudFoundryCredentials)) {
+      return null;
+    }
+    return ((CloudFoundryCredentials) credentials).getClient();
   }
 }
