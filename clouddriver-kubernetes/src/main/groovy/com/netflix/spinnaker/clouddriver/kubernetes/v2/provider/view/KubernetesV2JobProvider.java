@@ -16,6 +16,7 @@
 
 package com.netflix.spinnaker.clouddriver.kubernetes.v2.provider.view;
 
+import com.netflix.spinnaker.clouddriver.kubernetes.security.KubernetesNamedAccountCredentials;
 import com.netflix.spinnaker.clouddriver.kubernetes.v2.caching.agent.KubernetesCacheDataConverter;
 import com.netflix.spinnaker.clouddriver.kubernetes.v2.caching.view.model.KubernetesV2Manifest;
 import com.netflix.spinnaker.clouddriver.kubernetes.v2.description.manifest.KubernetesKind;
@@ -26,6 +27,7 @@ import com.netflix.spinnaker.clouddriver.kubernetes.v2.security.KubernetesV2Cred
 import com.netflix.spinnaker.clouddriver.model.JobProvider;
 import com.netflix.spinnaker.clouddriver.model.Manifest;
 import com.netflix.spinnaker.clouddriver.model.ManifestProvider;
+import com.netflix.spinnaker.clouddriver.security.AccountCredentials;
 import com.netflix.spinnaker.clouddriver.security.AccountCredentialsProvider;
 import io.kubernetes.client.models.V1Job;
 import io.kubernetes.client.models.V1Pod;
@@ -83,13 +85,17 @@ public class KubernetesV2JobProvider implements JobProvider<KubernetesV2JobStatu
 
   public Map<String, Object> getFileContents(
       String account, String location, String id, String filename) {
-    KubernetesV2Credentials credentials =
-        (KubernetesV2Credentials)
-            accountCredentialsProvider.getCredentials(account).getCredentials();
+    AccountCredentials credentials = accountCredentialsProvider.getCredentials(account);
+    if (!(credentials instanceof KubernetesNamedAccountCredentials)) {
+      return null;
+    }
+
+    KubernetesV2Credentials kubernetesV2Credentials =
+        (KubernetesV2Credentials) credentials.getCredentials();
     Map props = null;
     try {
       V1Job job = getKubernetesJob(account, location, id);
-      String logContents = credentials.jobLogs(location, job.getMetadata().getName());
+      String logContents = kubernetesV2Credentials.jobLogs(location, job.getMetadata().getName());
       props = PropertyParser.extractPropertiesFromLog(logContents);
     } catch (Exception e) {
       log.error("Couldn't parse properties for account {} at {}", account, location);

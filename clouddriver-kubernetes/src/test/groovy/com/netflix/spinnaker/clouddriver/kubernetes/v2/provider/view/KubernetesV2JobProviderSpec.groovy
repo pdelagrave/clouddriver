@@ -16,11 +16,11 @@
 
 package com.netflix.spinnaker.clouddriver.kubernetes.v2.provider.view
 
+import com.netflix.spinnaker.clouddriver.kubernetes.security.KubernetesNamedAccountCredentials
 import com.netflix.spinnaker.clouddriver.kubernetes.v2.caching.view.model.KubernetesV2Manifest
 import com.netflix.spinnaker.clouddriver.kubernetes.v2.caching.view.provider.KubernetesV2ManifestProvider
 import com.netflix.spinnaker.clouddriver.kubernetes.v2.description.manifest.KubernetesManifest
 import com.netflix.spinnaker.clouddriver.kubernetes.v2.security.KubernetesV2Credentials
-import com.netflix.spinnaker.clouddriver.security.AccountCredentials
 import com.netflix.spinnaker.clouddriver.security.AccountCredentialsProvider
 import spock.lang.Specification
 
@@ -33,7 +33,7 @@ class KubernetesV2JobProviderSpec extends Specification {
     }
 
     def mockAccountCredentialsProvider = Mock(AccountCredentialsProvider) {
-      getCredentials(*_) >> Mock(AccountCredentials) {
+      getCredentials(*_) >> Mock(KubernetesNamedAccountCredentials) {
         getCredentials(*_) >> mockCredentials
       }
     }
