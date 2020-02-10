@@ -264,16 +264,22 @@ public class CloudFoundryServerGroupCachingAgent extends AbstractCloudFoundryCac
   }
 
   private CacheData buildApplicationCacheData(CloudFoundryApplication app) {
-    return new ResourceCacheData(
-        Keys.getApplicationKey(app.getName()),
-        cacheView(app),
-        singletonMap(
-            CLUSTERS.getNs(),
-            app.getClusters().stream()
-                .map(
-                    cluster ->
-                        Keys.getClusterKey(this.getAccountName(), app.getName(), cluster.getName()))
-                .collect(toSet())));
+    try {
+      return new ResourceCacheData(
+          Keys.getApplicationKey(app.getName()),
+          cacheView(app),
+          singletonMap(
+              CLUSTERS.getNs(),
+              app.getClusters().stream()
+                  .map(
+                      cluster ->
+                          Keys.getClusterKey(
+                              this.getAccountName(), app.getName(), cluster.getName()))
+                  .collect(toSet())));
+    } catch (Exception e) {
+      log.warn("Error with cached application: {}", app.toString());
+      throw e;
+    }
   }
 
   private CacheData buildClusterCacheData(CloudFoundryCluster cluster) {
