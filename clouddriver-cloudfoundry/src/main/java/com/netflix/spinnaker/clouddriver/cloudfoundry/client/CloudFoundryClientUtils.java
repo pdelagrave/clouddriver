@@ -21,9 +21,13 @@ import com.netflix.spinnaker.clouddriver.cloudfoundry.client.model.v2.Page;
 import com.netflix.spinnaker.clouddriver.cloudfoundry.client.model.v2.Resource;
 import com.netflix.spinnaker.clouddriver.cloudfoundry.client.model.v3.Pagination;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import retrofit.RetrofitError;
 
 final class CloudFoundryClientUtils {
@@ -82,23 +86,21 @@ final class CloudFoundryClientUtils {
   static <R> List<Resource<R>> collectPageResources(
       String resourceNamePluralized, Function<Integer, Page<R>> fetchPage)
       throws CloudFoundryApiException {
-    Page<R> firstPage =
-        safelyCall(() -> fetchPage.apply(null))
-            .orElseThrow(
-                () -> new CloudFoundryApiException("Unable to retrieve " + resourceNamePluralized));
+    CloudFoundryApiException pageFetchFailed =
+        new CloudFoundryApiException("Unable to retrieve " + resourceNamePluralized);
+    Page<R> firstPage = safelyCall(() -> fetchPage.apply(null)).orElseThrow(() -> pageFetchFailed);
 
-    List<Resource<R>> allResources = new ArrayList<>(firstPage.getResources());
-    for (int page = 2; page <= firstPage.getTotalPages(); page++) {
-      final int p = page;
-      allResources.addAll(
-          safelyCall(() -> fetchPage.apply(p))
-              .orElseThrow(
-                  () ->
-                      new CloudFoundryApiException("Unable to retrieve " + resourceNamePluralized))
-              .getResources());
-    }
-
-    return allResources;
+    return Stream.concat(
+            firstPage.getResources().stream(),
+            IntStream.rangeClosed(2, firstPage.getTotalPages())
+                .parallel()
+                .mapToObj(
+                    page ->
+                        safelyCall(() -> fetchPage.apply(page))
+                            .orElseThrow(() -> pageFetchFailed)
+                            .getResources())
+                .flatMap(Collection::stream))
+        .collect(Collectors.toList());
   }
 
   interface RetrofitCallable<T> {
