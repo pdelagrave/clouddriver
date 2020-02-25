@@ -39,6 +39,10 @@ public interface RouteService {
   @GET("/v2/routes/{guid}/route_mappings")
   Page<RouteMapping> routeMappings(@Path("guid") String guid, @Query("page") Integer page);
 
+  // CAPI caps results-per-page to 100
+  @GET("/v2/route_mappings?results-per-page=100")
+  Page<RouteMapping> allRouteMappings(@Query("page") Integer page);
+
   @POST("/v2/routes")
   Resource<Route> createRoute(@Body Route route);
 

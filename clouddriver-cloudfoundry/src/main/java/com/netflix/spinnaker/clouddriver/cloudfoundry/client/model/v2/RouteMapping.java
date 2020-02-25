@@ -21,4 +21,5 @@ import lombok.Data;
 @Data
 public class RouteMapping {
   private String appGuid;
+  private String routeGuid;
 }

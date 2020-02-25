@@ -19,6 +19,7 @@ package com.netflix.spinnaker.clouddriver.cloudfoundry.client;
 import static com.netflix.spinnaker.clouddriver.cloudfoundry.client.CloudFoundryClientUtils.collectPageResources;
 import static com.netflix.spinnaker.clouddriver.cloudfoundry.client.CloudFoundryClientUtils.safelyCall;
 import static java.util.Collections.emptySet;
+import static java.util.stream.Collectors.groupingBy;
 
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -33,7 +34,9 @@ import com.netflix.spinnaker.clouddriver.cloudfoundry.model.CloudFoundryLoadBala
 import com.netflix.spinnaker.clouddriver.cloudfoundry.model.CloudFoundryServerGroup;
 import com.netflix.spinnaker.clouddriver.cloudfoundry.model.CloudFoundrySpace;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
@@ -78,27 +81,38 @@ public class Routes {
     this.forkJoinPool = new ForkJoinPool(maxConnections);
     this.routeMappings =
         CacheBuilder.newBuilder()
-            .expireAfterWrite(3, TimeUnit.MINUTES)
+            .expireAfterWrite(120, TimeUnit.SECONDS)
             .build(
                 new CacheLoader<String, List<RouteMapping>>() {
                   @Override
                   public List<RouteMapping> load(@Nonnull String guid)
                       throws CloudFoundryApiException, ResourceNotFoundException {
+                    log.info("individual route mapping loading {}", guid);
                     return collectPageResources("route mappings", pg -> api.routeMappings(guid, pg))
                         .stream()
                         .map(Resource::getEntity)
                         .collect(Collectors.toList());
                   }
+
+                  @Override
+                  public Map<String, List<RouteMapping>> loadAll(Iterable<? extends String> keys) {
+                    return collectPageResources("all route mappings", api::allRouteMappings)
+                        .parallelStream()
+                        .map(Resource::getEntity)
+                        .collect(groupingBy(RouteMapping::getRouteGuid));
+                  }
                 });
   }
 
-  private CloudFoundryLoadBalancer map(Resource<Route> res) throws CloudFoundryApiException {
-    Route route = res.getEntity();
+  private CloudFoundryLoadBalancer map(Resource<Route> routeResource)
+      throws CloudFoundryApiException {
+    final String routeGuid = routeResource.getMetadata().getGuid();
+    final Route route = routeResource.getEntity();
 
     Set<CloudFoundryServerGroup> mappedApps = emptySet();
     try {
       mappedApps =
-          routeMappings.get(res.getMetadata().getGuid()).stream()
+          routeMappings.get(routeGuid).stream()
               .map(rm -> applications.findById(rm.getAppGuid()))
               .collect(Collectors.toSet());
     } catch (ExecutionException e) {
@@ -108,7 +122,7 @@ public class Routes {
 
     return CloudFoundryLoadBalancer.builder()
         .account(account)
-        .id(res.getMetadata().getGuid())
+        .id(routeGuid)
         .host(route.getHost())
         .path(route.getPath())
         .port(route.getPort())
@@ -163,13 +177,27 @@ public class Routes {
 
   public List<CloudFoundryLoadBalancer> all() throws CloudFoundryApiException {
     try {
+      log.info("LB all start");
       return forkJoinPool
           .submit(
-              () ->
-                  collectPageResources("routes", pg -> api.all(pg, resultsPerPage, null))
-                      .parallelStream()
-                      .map(this::map)
-                      .collect(Collectors.toList()))
+              () -> {
+                try {
+                  // Force the cache to load all the route mappings in a few paged calls
+                  // instead of doing 1 HTTP call per route/mapping
+                  log.info("lb mapping all pages");
+                  routeMappings.getAll(Collections.singleton(""));
+                } catch (CacheLoader.InvalidCacheLoadException ignored) {
+                }
+                log.info("lb mapping all pages DONE");
+                log.info("collecting all routes pages");
+                List<Resource<Route>> routes =
+                    collectPageResources("routes", pg -> api.all(pg, resultsPerPage, null));
+                log.info("collecting all routes pages DONE");
+                List<CloudFoundryLoadBalancer> collected =
+                    routes.parallelStream().map(this::map).collect(Collectors.toList());
+                log.info("route collected");
+                return collected;
+              })
           .get();
     } catch (Exception e) {
       throw new RuntimeException(e);
