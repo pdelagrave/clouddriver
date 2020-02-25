@@ -182,7 +182,7 @@ public class HttpCloudFoundryClient implements CloudFoundryClient {
     this.password = password;
 
     this.okHttpClient = createHttpClient(skipSslValidation);
-    this.okHttpClient.setReadTimeout(90, TimeUnit.SECONDS);
+    this.okHttpClient.setReadTimeout(20, TimeUnit.SECONDS);
 
     okHttpClient.interceptors().add(this::createRetryInterceptor);
 
